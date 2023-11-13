@@ -12,6 +12,7 @@ library(bonsai)
 library(lightgbm)
 library(embed)
 library(timetk)
+library(patchwork)
 
 
 # Load the data -----------------------------------------------------------
@@ -29,17 +30,32 @@ dplyr::glimpse(trainSet)
 # trainSet %>%
 #   plot_time_series(date, sales, .interactive=FALSE)
 
+# Create 4 combinations of StoreItem
+storeitem1 <- trainSet %>% filter(store == 1, item == 10)
+storeitem2 <- trainSet %>% filter(store == 2, item == 9)
+storeitem3 <- trainSet %>% filter(store == 3, item == 8)
+storeitem4 <- trainSet %>% filter(store == 4, item == 7)
+
 # ACF Function plots
-storeItem %>%
-  pull(sales)
-forecast::ggAcf(., lag.max=2*365)
-
-max(testSet$store)
-max(testSet$item)
-
+g1 <- storeitem1 %>%
+  pull(sales) %>%
+  forecast::ggAcf(., lag.max=2*365) +
+  ggtitle("Store 1 - Item 10, Autocorrelation of Sales Over 2 years")
+g2 <- storeitem2 %>%
+  pull(sales) %>%
+  forecast::ggAcf(., lag.max=2*365) +
+  ggtitle("Store 2 - Item 9, Autocorrelation of Sales Over 2 years")
+g3 <- storeitem3 %>%
+  pull(sales) %>%
+  forecast::ggAcf(., lag.max=2*365) +
+  ggtitle("Store 3 - Item 8, Autocorrelation of Sales Over 2 years")
+g4 <- storeitem4 %>%
+  pull(sales) %>%
+  forecast::ggAcf(., lag.max=2*365) +
+  ggtitle("Store 4 - Item 7, Autocorrelation of Sales Over 2 years")
 
 # Combination
-
+(g1 + g2) / (g3 + g4)
 
 
 
