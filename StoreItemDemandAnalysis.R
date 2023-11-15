@@ -57,8 +57,83 @@ g4 <- storeitem4 %>%
 # Combination
 (g1 + g2) / (g3 + g4)
 
+dplyr::glimpse(storeitem4)
+
+# My recipe
+my_recipe <- recipe(sales~., data=storeitem4) %>%
+  step_date(date, features = c("dow", "month", "year", "week", "doy", "decimal")) %>%
+  step_holiday(date) %>%
+  step_range(date_doy, min = 0, max = pi) %>%
+  step_mutate(sinDOY = sin(date_doy), cosDOY = cos(date_doy)) %>%
+  # step_lag(date, lag = 365) %>%
+  # step_lag(date, lag = 30) %>%
+  # step_lag(date, lag = 7) %>%
+  # step_naomit(columnslag_365_date, lag_30_date, lag_7_date) %>%
+  step_rm('store', 'item')
+  
+
+# Bake
+prep <- prep(my_recipe)
+train_clean <- bake(prep, new_data = storeitem4)
+view(train_clean)
 
 
+# Modeling RF----------------------------------------------------------------
+
+# Model
+rf_mod <- rand_forest(mtry = tune(),
+                      min_n=tune(),
+                      trees=200) %>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+
+## Workflow
+rf_workflow <- workflow() %>%
+  add_recipe(my_recipe) %>%
+  add_model(rf_mod) %>%
+  fit(data = storeitem4)
+
+## Set up grid of tuning values
+tuning_grid <- grid_regular(mtry(range = c(1,12)), # How many Variables to choose from
+                            # researches have found log of total variables is enough
+                            min_n(),
+                            levels = 5)
+
+# Set up K-fold CV
+folds <- vfold_cv(storeitem4, v = 5, repeats=1)
+
+# Cross Validation
+CV_results <- rf_workflow %>%
+  tune_grid(resamples=folds,
+            grid=tuning_grid,
+            metrics=metric_set(smape))
+
+# Find best tuning parameters
+bestTune <- CV_results %>%
+  select_best("smape")
+
+collect_metrics(CV_results) %>%
+  filter(mtry == bestTune$mtry, min_n == bestTune$min_n, .config == bestTune$.config) %>%
+  pull(mean)
+
+# Finalize workflow
+final_wf <- rf_workflow %>%
+  finalize_workflow(bestTune) %>%
+  fit(data=amazon_train)
+
+# Predict
+predictions <- final_wf %>%
+  predict(new_data = testSet)
+
+
+# Format table
+
+
+# get csv file
+vroom_write(results, 'AmazonPredsrf.csv', delim = ",")
+
+
+  
 # Modeling ----------------------------------------------------------------
 
 nStores <- max(train$store)
