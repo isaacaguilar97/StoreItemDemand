@@ -44,6 +44,9 @@ storeitem2 <- trainSet %>% filter(store == 2, item == 9)
 storeitem3 <- trainSet %>% filter(store == 3, item == 8)
 storeitem4 <- trainSet %>% filter(store == 4, item == 7)
 
+storeitem1t <- testSet %>% filter(store == 1, item == 10)
+storeitem2t <- testSet %>% filter(store == 2, item == 9)
+
 # ACF Function plots
 g1 <- storeitem1 %>%
   pull(sales) %>%
@@ -234,6 +237,9 @@ cv_split2 <- time_series_split(storeitem2, assess="3 months", cumulative = TRUE)
 cv_split1 <- time_series_split(storeitem1, assess="3 months", cumulative = TRUE)
 cv_split2 <- time_series_split(storeitem2, assess="3 months", cumulative = TRUE)
 
+storeitem1t <- testSet %>% filter(store == 1, item == 10)
+storeitem2t <- testSet %>% filter(store == 2, item == 9)
+
 arima_recipe <- recipe(sales~., data=storeitem1) %>%
   step_date(date, features = c("dow", "month", "year", "week", "doy", "decimal")) %>%
   step_holiday(date) %>%
@@ -296,14 +302,28 @@ es_fullfit2 <- cv_results2 %>%
   modeltime_refit(data = storeitem2)
 
 p3 <- es_fullfit1 %>%
-  modeltime_forecast(new_data = storeitem1, actual_data = storeitem1) %>% # new_data = item
+  modeltime_forecast(new_data = storeitem1t, actual_data = storeitem1) %>% # new_data = item
   plot_modeltime_forecast(.interactive=FALSE)
 
 p4 <- es_fullfit2 %>%
-  modeltime_forecast(new_data = storeitem1,actual_data = storeitem2) %>%
+  modeltime_forecast(new_data = storeitem2t,actual_data = storeitem2) %>%
   plot_modeltime_forecast(.interactive=FALSE)
 
 plotly::subplot(p1,p3,p2,p4, nrows=2)
+
+
+
+# Facebook PROPHET's Model ------------------------------------------------
+
+prophet_model <- prophet_reg() %>%
+  set_engine(engine = "prophet") %>%
+  fit(y ~ date, data = training(cv_split))
+
+## Calibrate (i.e. tune) workflow
+
+## Visualize & Evaluate CV accuracy
+
+## Refit best model to entire data and predict
 
 # Modeling ----------------------------------------------------------------
 
