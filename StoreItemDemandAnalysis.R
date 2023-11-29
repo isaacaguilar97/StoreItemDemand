@@ -315,15 +315,58 @@ plotly::subplot(p1,p3,p2,p4, nrows=2)
 
 # Facebook PROPHET's Model ------------------------------------------------
 
-prophet_model <- prophet_reg() %>%
+
+cv_split1 <- time_series_split(storeitem1, assess="3 months", cumulative = TRUE)
+cv_split2 <- time_series_split(storeitem2, assess="3 months", cumulative = TRUE)
+
+storeitem1t <- testSet %>% filter(store == 1, item == 10)
+storeitem2t <- testSet %>% filter(store == 2, item == 9)
+
+prophet_model1 <- prophet_reg() %>%
   set_engine(engine = "prophet") %>%
-  fit(y ~ date, data = training(cv_split))
+  fit(sales ~ date, data = training(cv_split1))
+
+prophet_model2 <- prophet_reg() %>%
+  set_engine(engine = "prophet") %>%
+  fit(sales ~ date, data = training(cv_split2))
 
 ## Calibrate (i.e. tune) workflow
+cv_results1 <- modeltime_calibrate(prophet_model1,
+                                   new_data = testing(cv_split1))
+cv_results2 <- modeltime_calibrate(prophet_model2,
+                                   new_data = testing(cv_split2))
 
 ## Visualize & Evaluate CV accuracy
+p1 <- cv_results1 %>%
+  modeltime_forecast(
+    new_data = testing(cv_split1),
+    actual_data = storeitem1
+  ) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
+
+p2 <- cv_results2 %>%
+  modeltime_forecast(
+    new_data = testing(cv_split2), # We need to change this
+    actual_data = storeitem2
+  ) %>%
+  plot_modeltime_forecast(.interactive=TRUE)
 
 ## Refit best model to entire data and predict
+es_fullfit1 <- cv_results1 %>%
+  modeltime_refit(data = storeitem1)
+
+es_fullfit2 <- cv_results2 %>%
+  modeltime_refit(data = storeitem2)
+
+p3 <- es_fullfit1 %>%
+  modeltime_forecast(new_data = storeitem1t, actual_data = storeitem1) %>% # new_data = item
+  plot_modeltime_forecast(.interactive=FALSE)
+
+p4 <- es_fullfit2 %>%
+  modeltime_forecast(new_data = storeitem2t,actual_data = storeitem2) %>%
+  plot_modeltime_forecast(.interactive=FALSE)
+
+plotly::subplot(p1,p3,p2,p4, nrows=2)
 
 # Modeling ----------------------------------------------------------------
 
