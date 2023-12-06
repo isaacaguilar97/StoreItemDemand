@@ -30,6 +30,8 @@ library(timetk) #Some nice time series functions
 trainSet <- vroom('./train.csv')
 testSet <- vroom('./test.csv')
 
+
+
 # EDA ---------------------------------------------------------------------
 
 dplyr::glimpse(trainSet)
@@ -279,6 +281,21 @@ cv_results2 <- modeltime_calibrate(arima_wf2,
                                    new_data = testing(cv_split2))
 
 
+fullfit <- cv_results1 %>%
+  modeltime_refit(data = storeitem1)  
+
+# Predict storeItem sales and clean format
+preds <- fullfit %>% modeltime_forecast(
+  # h = "3 months"
+          new_data = storeItemTest,
+          actual_data = storeItemTrain
+) %>%
+  rename(date = .index, sales = .value) %>%
+  select(date, sales) %>%
+  full_join(., y=storeItemTest, by="date") %>%
+  select(id, sales) %>%
+  filter(!is.na(id))
+
 # ## Visualize CV results
 p1 <- cv_results1 %>%
   modeltime_forecast(
@@ -322,6 +339,8 @@ cv_split2 <- time_series_split(storeitem2, assess="3 months", cumulative = TRUE)
 storeitem1t <- testSet %>% filter(store == 1, item == 10)
 storeitem2t <- testSet %>% filter(store == 2, item == 9)
 
+nrow(storeitem1t)
+
 prophet_model1 <- prophet_reg() %>%
   set_engine(engine = "prophet") %>%
   fit(sales ~ date, data = training(cv_split1))
@@ -337,6 +356,12 @@ cv_results2 <- modeltime_calibrate(prophet_model2,
                                    new_data = testing(cv_split2))
 
 ## Visualize & Evaluate CV accuracy
+cv_results1 %>%
+  modeltime_forecast(
+    new_data = testing(cv_split1),
+    actual_data = storeitem1)
+
+
 p1 <- cv_results1 %>%
   modeltime_forecast(
     new_data = testing(cv_split1),
@@ -359,29 +384,84 @@ es_fullfit2 <- cv_results2 %>%
   modeltime_refit(data = storeitem2)
 
 p3 <- es_fullfit1 %>%
-  modeltime_forecast(new_data = storeitem1t, actual_data = storeitem1) %>% # new_data = item
-  plot_modeltime_forecast(.interactive=FALSE)
+  modeltime_forecast(new_data = storeitem1t, actual_data = storeitem1) #%>% # new_data = item
+  #plot_modeltime_forecast(.interactive=FALSE)
+
+new <- p3 %>% 
+  rename(date = .index, sales = .value) %>%
+  select(date, sales) %>%
+  full_join(., y=storeitem1t, by="date") %>%
+  select(id, sales) %>%
+  filter(!is.na(id))
+
 
 p4 <- es_fullfit2 %>%
   modeltime_forecast(new_data = storeitem2t,actual_data = storeitem2) %>%
   plot_modeltime_forecast(.interactive=FALSE)
 
+es_fullfit1 %>%
+  predict(new_data = storeitem1t)
+
 plotly::subplot(p1,p3,p2,p4, nrows=2)
 
 # Modeling ----------------------------------------------------------------
 
-nStores <- max(train$store)
-nItems <- max(train$item)
+nStores <- 1 #max(trainSet$store)
+nItems <- 1 #max(trainSet$item)
 for(s in 1:nStores){
   for(i in 1:nItems){
-    storeItemTrain <- train %>%
-    filter(store==s, item==i)
-    storeItemTest <- test %>%
-    filter(store==s, item==i)
+    storeItemTrain <- trainSet %>%
+      filter(store==s, item==i)
+    storeItemTest <- testSet %>%
+      filter(store==s, item==i)
     
     ## Fit storeItem models here
+    cv_split <- time_series_split(storeItemTrain, assess="3 months", cumulative = TRUE)
     
-    ## Predict storeItem sales
+    arima_recipe <- recipe(sales~., data=storeItemTrain) %>%
+      step_date(date, features = c("dow", "month", "year", "week", "doy", "decimal")) %>%
+      step_holiday(date) %>%
+      step_range(date_doy, min = 0, max = pi) %>%
+      step_mutate(sinDOY = sin(date_doy), cosDOY = cos(date_doy))
+
+    S <- 365
+    arima_model <- arima_reg(seasonal_period=S,
+                             non_seasonal_ar=5, # default max p to tune
+                             non_seasonal_ma=5, # default max q to tune
+                             seasonal_ar=2, # default max P to tune
+                             seasonal_ma=2, #default max Q to tune
+                             non_seasonal_differences=2, # default max d to tune
+                             seasonal_differences=2) %>% #default max D to tune
+      set_engine("auto_arima")
+    
+    arima_wf <- workflow() %>%
+      add_recipe(arima_recipe) %>%
+      add_model(arima_model) %>%
+      fit(data=training(cv_split))
+    
+    # prophet_model <- prophet_reg() %>%
+    #   set_engine(engine = "prophet") %>%
+    #   fit(sales ~ date, data = training(cv_split))
+    
+    # Tune/Calibrate
+    cv_results <- modeltime_calibrate(arima_wf,
+                                      new_data = testing(cv_split))
+    # Refit to whole dataset
+    fullfit <- cv_results %>%
+      modeltime_refit(data = storeItemTrain)  
+    
+    # Predict storeItem sales and clean format
+    preds <- fullfit %>% modeltime_forecast(
+      # h = "3 months"
+              new_data = storeItemTest,
+              actual_data = storeItemTrain
+    ) %>%
+      rename(date = .index, sales = .value) %>%
+      select(date, sales) %>%
+      full_join(., y=storeItemTest, by="date") %>%
+      select(id, sales) # %>%
+    #       filter(!is.na(id))
+    
     
     ## Save storeItem predictions
     if(s==1 & i==1){
@@ -392,4 +472,9 @@ for(s in 1:nStores){
   }
 }
 
+all_preds <- all_preds %>%
+  arrange(id)
+
 stopCluster(cl)
+
+
